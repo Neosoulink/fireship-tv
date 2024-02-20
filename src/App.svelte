@@ -6,7 +6,6 @@
 		PerspectiveCamera,
 		Group,
 		LinearToneMapping,
-		GridHelper,
 		TextureLoader,
 		MeshBasicMaterial,
 		Mesh,
@@ -18,6 +17,14 @@
 		Color,
 		Vector3,
 		Quaternion,
+		ShaderMaterial,
+		BufferGeometry,
+		Raycaster,
+		Vector2,
+		MathUtils,
+		type Intersection,
+		Object3D,
+		type Object3DEventMap,
 	} from "three";
 	import {
 		CSS3DObject,
@@ -25,6 +32,7 @@
 	} from "three/examples/jsm/renderers/CSS3DRenderer.js";
 	import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 	import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+	import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 
 	let canvasElement: HTMLCanvasElement;
 	let dispose = () => {};
@@ -39,7 +47,15 @@
 		let gltfLoader = new GLTFLoader();
 		let textureLoader = new TextureLoader();
 		let tvModel: Group | undefined;
-		let tvScreen: Mesh | undefined;
+		let tvScreen: Mesh<BufferGeometry, ShaderMaterial> | undefined;
+		let tvChanelControl: Mesh<BufferGeometry, MeshBasicMaterial>;
+		let tvVolumeControl: Mesh<BufferGeometry, MeshBasicMaterial>;
+
+		let fireshipProChanel = {
+			degree: -4.24,
+			src: "https://player.vimeo.com/video/599890291",
+			name: "",
+		};
 
 		/**
 		 * Initialize Model & Text.
@@ -61,9 +77,15 @@
 						if (!(child instanceof Mesh)) return;
 						child.material = mat;
 
-						if (child.name === "screen") {
-							tvScreen = child;
-							tvScreen.visible = false;
+						if (child.name === "screen") tvScreen = child;
+						if (child.name === "volume_control") {
+							tvVolumeControl = child;
+							tvVolumeControl.rotation.z = -5.13;
+						}
+						if (child.name === "chanel_control") {
+							tvChanelControl = child;
+							fireshipProChanel.name = child.name;
+							tvChanelControl.rotation.z = -4.24;
 						}
 					});
 
@@ -79,6 +101,9 @@
 			if (!tvModel || !tvScreen)
 				return console.warn("🚧 Unable to resolve model");
 
+			let tickStart = Date.now();
+			let tickCurrent = tickStart;
+
 			const tvScreenBoundingBox = new Box3().setFromObject(tvScreen);
 			const tvScreenHeight =
 				tvScreenBoundingBox.max.y - tvScreenBoundingBox.min.y;
@@ -87,7 +112,7 @@
 			const iframeElementWidth = 400;
 
 			const iframeElement: HTMLIFrameElement = document.createElement("iframe");
-			iframeElement.src = "https://player.vimeo.com/video/599890291";
+			iframeElement.src = fireshipProChanel.src;
 			iframeElement.allowFullscreen = true;
 			iframeElement.allow = "autoplay";
 			iframeElement.setAttribute("webkitallowfullscreen", "true");
@@ -123,8 +148,6 @@
 			renderer.setSize(viewportWidth, viewportHeight);
 			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-			const gridHelper = new GridHelper(10, 10);
-
 			const cssFactor = 1000;
 			const cssScene = new Scene();
 			const cssCamera = new PerspectiveCamera(
@@ -144,9 +167,93 @@
 				rendererCss.domElement,
 				canvasElement
 			);
-			const cameraControls = new OrbitControls(camera, rendererCss.domElement);
-			cameraControls.enableDamping = true;
-			cameraControls.target.set(0, 1.5, 0);
+
+			const cameraOrbit = new OrbitControls(camera, rendererCss.domElement);
+			cameraOrbit.enableRotate = false;
+			cameraOrbit.enableZoom = false;
+			cameraOrbit.enablePan = false;
+			cameraOrbit.target.set(0, 1.5, 0);
+			const cameraLock = new PointerLockControls(camera, document.body);
+			const raycaster = new Raycaster();
+			const pointerCoord = new Vector2();
+
+			let selectedObject: Mesh | undefined;
+			let intersects: Intersection<Object3D<Object3DEventMap>>[] = [];
+
+			const onpointerDown = () => {
+				if (!tvModel) return;
+
+				if (!intersects?.length || !(intersects[0]?.object instanceof Mesh))
+					return;
+
+				if (
+					["volume_control", "chanel_control"].includes(
+						intersects[0].object.name
+					)
+				) {
+					selectedObject = intersects[0].object;
+					cameraLock.lock();
+				}
+			};
+
+			function mapToBoundary(
+				value: number,
+				minValue: number,
+				maxValue: number
+			) {
+				const newValue = Math.max(minValue, Math.min(maxValue, value));
+				let normalizedValue =
+					((newValue - minValue) / (maxValue - minValue)) * 2 - 1;
+				if (Math.abs(normalizedValue) >= 0.99) {
+					return 1;
+				} else {
+					return Math.abs(normalizedValue);
+				}
+			}
+
+			const onPointerMove = (e: PointerEvent) => {
+				pointerCoord.x = (e.clientX / viewportWidth) * 2 - 1;
+				pointerCoord.y = -(e.clientY / viewportHeight) * 2 + 1;
+
+				raycaster.setFromCamera(pointerCoord, camera);
+				intersects = raycaster.intersectObject(scene);
+
+				if (canvasElement.parentElement?.style)
+					canvasElement.parentElement.style.cursor = "auto";
+				if (
+					intersects?.length &&
+					canvasElement.parentElement &&
+					["volume_control", "chanel_control"].includes(
+						intersects[0].object.name
+					)
+				)
+					canvasElement.parentElement.style.cursor = "pointer";
+
+				if (!selectedObject || !tvChanelControl) return;
+
+				selectedObject.rotation.z -= -e.movementY * 0.01;
+				selectedObject.rotation.z = MathUtils.clamp(
+					selectedObject.rotation.z,
+					-Math.PI * 2,
+					0
+				);
+
+				if (typeof tvScreen?.material.uniforms?.uAlpha?.value === "number")
+					tvScreen.material.uniforms.uAlpha.value = mapToBoundary(
+						tvChanelControl.rotation.z,
+						fireshipProChanel.degree - 0.5,
+						fireshipProChanel.degree + 0.5
+					);
+			};
+
+			const onPointerUp = (e: PointerEvent) => {
+				selectedObject = undefined;
+				cameraLock.unlock();
+			};
+
+			window.addEventListener("pointerdown", onpointerDown);
+			window.addEventListener("pointermove", onPointerMove);
+			window.addEventListener("pointerup", onPointerUp);
 
 			const cssPlaneObject = new CSS3DObject(iframeElement);
 			cssPlaneObject.scale
@@ -164,14 +271,40 @@
 			);
 			planeMask.position.copy(tvScreen.position).add(new Vector3(0, 0, -0.02));
 
-			// ===
+			tvScreen.position.add(new Vector3(0, 0, 0.001));
+			tvScreen.material = new ShaderMaterial({
+				transparent: true,
+				vertexShader:
+					"varying vec2 vUv;void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);vUv=uv;}",
+				fragmentShader: `
+        varying vec2 vUv;uniform float uTime;uniform float uDelta;uniform float uAlpha;
+        float rand(vec2 uv){return fract(sin(dot(uv,vec2(12.9898,78.233)))*43758.5453);}
+        void main(){vec2 uv=vUv;float rand_val=rand(uv+sin(uDelta*(uTime*0.0001)));gl_FragColor=vec4(mix(vec3(.0),vec3(rand_val),uAlpha),uAlpha);}
+        `,
+				uniforms: {
+					uTime: { value: 0 },
+					uDelta: { value: 0 },
+					uAlpha: { value: 0 },
+				},
+			});
 
 			tvModel.add(planeMask);
 			cssScene.add(cssPlaneObject);
-			scene.add(gridHelper, tvModel);
+			scene.add(tvModel);
 
+			let shouldStopRendering = false;
 			const render = () => {
-				cameraControls.update();
+				const tickCurrentTime = Date.now();
+				const tickDelta = tickCurrentTime - tickCurrent;
+				tickCurrent = tickCurrentTime;
+				const tickElapsed = tickCurrent - tickStart;
+
+				if (typeof tvScreen?.material.uniforms?.uTime?.value === "number")
+					tvScreen.material.uniforms.uTime.value = tickElapsed;
+				if (typeof tvScreen?.material.uniforms?.uDelta?.value === "number")
+					tvScreen.material.uniforms.uDelta.value = tickDelta;
+
+				cameraOrbit.update();
 
 				planeMask.updateMatrixWorld();
 				const planeMaskWorldMatrix = planeMask.matrixWorld;
@@ -199,15 +332,22 @@
 				cssCamera.position.copy(camera.position).multiplyScalar(cssFactor);
 
 				rendererCss.render(cssScene, cssCamera);
-
 				renderer.render(scene, camera);
 
-				requestAnimationFrame(render);
+				const animationFrameId = requestAnimationFrame(render);
+				if (shouldStopRendering) cancelAnimationFrame(animationFrameId);
+			};
+
+			dispose = () => {
+				window.removeEventListener("pointerdown", onpointerDown);
+				window.removeEventListener("pointermove", onPointerMove);
+				window.removeEventListener("pointerup", onPointerUp);
+				cameraOrbit.dispose();
+				cameraLock.dispose();
+				shouldStopRendering = true;
 			};
 
 			render();
-
-			dispose = () => {};
 		};
 
 		loadResources(init);
