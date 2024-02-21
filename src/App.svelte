@@ -31,35 +31,27 @@
 		CSS3DRenderer,
 	} from "three/examples/jsm/renderers/CSS3DRenderer.js";
 	import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-	import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-	import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 	import Vimeo from "@vimeo/player";
 
 	let canvasElement: HTMLCanvasElement;
 	let dispose = () => {};
 
 	onMount(() => {
-		let viewportWidth = window.innerWidth;
-		let viewportHeight = window.innerHeight;
-		let viewportAspect = viewportWidth / viewportHeight;
-
-		let scene = new Scene();
-
 		let gltfLoader = new GLTFLoader();
 		let textureLoader = new TextureLoader();
+
 		let tvModel: Group | undefined;
 		let tvScreen: Mesh<BufferGeometry, ShaderMaterial> | undefined;
-		let tvChanelControl: Mesh<BufferGeometry, MeshBasicMaterial>;
-		let tvVolumeControl: Mesh<BufferGeometry, MeshBasicMaterial>;
-
-		let fireshipProChanel = {
+		let tvChanelControl: Mesh<BufferGeometry, MeshBasicMaterial> | undefined;
+		let tvVolumeControl: Mesh<BufferGeometry, MeshBasicMaterial> | undefined;
+		let tvFireshipProChanel = {
 			degree: -4.24,
 			src: "https://player.vimeo.com/video/599890291",
-			name: "",
 		};
+		let tvInitialVolumeDegree = -5.13;
 
 		/**
-		 * Initialize Model & Text.
+		 * Initialize Model & Texture.
 		 * @param cb Callback triggered after all resources are loaded
 		 */
 		const loadResources = (cb: () => void) => {
@@ -77,17 +69,9 @@
 					tvModel?.children.forEach((child) => {
 						if (!(child instanceof Mesh)) return;
 						child.material = mat;
-
 						if (child.name === "screen") tvScreen = child;
-						if (child.name === "volume_control") {
-							tvVolumeControl = child;
-							tvVolumeControl.rotation.z = -5.13;
-						}
-						if (child.name === "chanel_control") {
-							tvChanelControl = child;
-							fireshipProChanel.name = child.name;
-							tvChanelControl.rotation.z = -4.24;
-						}
+						if (child.name === "volume_control") tvVolumeControl = child;
+						if (child.name === "chanel_control") tvChanelControl = child;
 					});
 
 					cb();
@@ -95,61 +79,25 @@
 			});
 		};
 
-		/**
-		 * Initialize the 3D experience.
-		 */
+		/** Initialize the experience.*/
 		const init = () => {
-			if (!tvModel || !tvScreen) return;
+			const parentElement = canvasElement.parentElement;
 
-			let tickStart = Date.now();
-			let tickCurrent = tickStart;
+			// DATA
+			if (!tvModel || !tvScreen || !parentElement) return;
 
-			let shouldStopRendering = false;
-			let pointerCoord = new Vector2(0.5);
-			let prevPointerCoord = new Vector2(0.5);
-			let tvModelTargetRotation = new Vector2();
-			let selectedObject: Mesh | undefined;
-			let intersects: Intersection<Object3D<Object3DEventMap>>[] = [];
+			let viewportWidth = parentElement.clientWidth;
+			let viewportHeight = parentElement.clientHeight;
+			let viewportAspect = viewportWidth / viewportHeight;
 
-			const tvScreenBoundingBox = new Box3().setFromObject(tvScreen);
-			const tvScreenHeight =
-				tvScreenBoundingBox.max.y - tvScreenBoundingBox.min.y;
-			const tvScreenWidth =
-				tvScreenBoundingBox.max.x - tvScreenBoundingBox.min.x;
-			const iframeElementWidth = 400;
-
-			const iframeElement: HTMLIFrameElement = document.createElement("iframe");
-
-			iframeElement.src = fireshipProChanel.src;
-			iframeElement.allowFullscreen = true;
-			iframeElement.allow = "autoplay";
-			iframeElement.setAttribute("webkitallowfullscreen", "true");
-			iframeElement.setAttribute("mozallowfullscreen", "true");
-			iframeElement.setAttribute("frameborder", "0");
-			iframeElement.style.aspectRatio = "16/9";
-			iframeElement.style.border = "none";
-			iframeElement.style.top = "0";
-			iframeElement.style.left = "0";
-			iframeElement.style.zIndex = "9999";
-			const iframePlayer = new Vimeo(iframeElement);
-
-			const correctIframeSizes = (factor = 1) => {
-				iframeElement.style.minHeight = `${
-					iframeElementWidth * (tvScreenHeight / tvScreenWidth) * factor
-				}px`;
-
-				iframeElement.style.width = `${iframeElementWidth * factor}px`;
-			};
-			correctIframeSizes(1.15);
-			const onIframeLoad = () => {
-				correctIframeSizes();
-				iframeElement.removeEventListener("load", onIframeLoad);
-			};
-			iframeElement.addEventListener("load", onIframeLoad);
+			/* Scene camera */
+			const scene = new Scene();
 
 			const camera = new PerspectiveCamera(35, viewportAspect, 1, 100);
 			camera.position.set(0, 1.5, 10);
 			camera.lookAt(0, 1.5, 0);
+
+			/* Experience renderer */
 			const renderer = new WebGLRenderer({
 				canvas: canvasElement,
 				antialias: true,
@@ -161,6 +109,32 @@
 			renderer.setClearAlpha(0);
 			renderer.setSize(viewportWidth, viewportHeight);
 			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+			const raycaster = new Raycaster();
+
+			const pointerCoord = new Vector2(0.5);
+
+			const tvScreenBoundingBox = new Box3().setFromObject(tvScreen);
+			const tvScreenHeight =
+				tvScreenBoundingBox.max.y - tvScreenBoundingBox.min.y;
+			const tvScreenWidth =
+				tvScreenBoundingBox.max.x - tvScreenBoundingBox.min.x;
+			const tvTargetRotation = new Vector2();
+
+			const iframeElementWidth = 400;
+			const iframeElement: HTMLIFrameElement = document.createElement("iframe");
+			iframeElement.src = tvFireshipProChanel.src;
+			iframeElement.allowFullscreen = true;
+			iframeElement.allow = "autoplay";
+			iframeElement.setAttribute("webkitallowfullscreen", "true");
+			iframeElement.setAttribute("mozallowfullscreen", "true");
+			iframeElement.setAttribute("frameborder", "0");
+			iframeElement.style.aspectRatio = "16/9";
+			iframeElement.style.border = "none";
+			iframeElement.style.top = "0";
+			iframeElement.style.left = "0";
+			iframeElement.style.zIndex = "9999";
+			const iframePlayer = new Vimeo(iframeElement);
 
 			const cssFactor = 1000;
 			const cssScene = new Scene();
@@ -177,18 +151,7 @@
 			rendererCss.domElement.style.top = "0";
 			rendererCss.domElement.style.left = "0";
 			rendererCss.domElement.style.position = "fixed";
-			canvasElement.parentElement?.insertBefore(
-				rendererCss.domElement,
-				canvasElement
-			);
-
-			const cameraOrbit = new OrbitControls(camera, rendererCss.domElement);
-			cameraOrbit.enableRotate = false;
-			cameraOrbit.enableZoom = false;
-			cameraOrbit.enablePan = false;
-			cameraOrbit.target.set(0, 1.5, 0);
-			const cameraLock = new PointerLockControls(camera, document.body);
-			const raycaster = new Raycaster();
+			parentElement?.insertBefore(rendererCss.domElement, canvasElement);
 
 			const cssPlaneObject = new CSS3DObject(iframeElement);
 			cssPlaneObject.scale
@@ -206,6 +169,14 @@
 			);
 			planeMask.position.copy(tvScreen.position).add(new Vector3(0, 0, -0.02));
 
+			let tickStart = Date.now();
+			let tickCurrent = tickStart;
+
+			let shouldStopRendering = false;
+
+			let intersects: Intersection<Object3D<Object3DEventMap>>[] = [];
+			let selectedObject: Mesh | undefined;
+
 			tvScreen.position.add(new Vector3(0, 0, 0.001));
 			tvScreen.material = new ShaderMaterial({
 				transparent: true,
@@ -219,7 +190,7 @@
 				uniforms: {
 					uTime: { value: 0 },
 					uDelta: { value: 0 },
-					uAlpha: { value: 0 },
+					uAlpha: { value: 1 },
 				},
 			});
 
@@ -227,114 +198,145 @@
 			cssScene.add(cssPlaneObject);
 			scene.add(tvModel);
 
-			const onpointerDown = () => {
-				if (!tvModel) return;
-
-				if (!intersects?.length || !(intersects[0]?.object instanceof Mesh))
-					return;
-
-				if (
-					["volume_control", "chanel_control"].includes(
-						intersects[0].object.name
-					)
-				) {
-					selectedObject = intersects[0].object;
-					if (selectedObject.name === "chanel_control") iframePlayer.pause();
-					cameraLock.lock();
-				}
-			};
-
+			// METHODS
 			const mapToBoundary = (
 				value: number,
 				minValue: number,
 				maxValue: number
 			) => {
-				const newValue = Math.max(minValue, Math.min(maxValue, value));
-				let normalizedValue =
-					((newValue - minValue) / (maxValue - minValue)) * 2 - 1;
-				if (Math.abs(normalizedValue) >= 0.99) {
-					return 1;
-				} else {
-					return Math.abs(normalizedValue);
-				}
+				let result =
+					((Math.max(minValue, Math.min(maxValue, value)) - minValue) /
+						(maxValue - minValue)) *
+						2 -
+					1;
+				if (Math.abs(result) >= 0.99) return 1;
+				return Math.abs(result);
 			};
-
-			const calculateTvRotation = (x: number, y: number) => {
-				const rotationX = (y - prevPointerCoord.y) * 0.3;
-				const rotationY = (x - prevPointerCoord.x) * 0.3;
-
-				tvModelTargetRotation.x -= rotationX;
-				tvModelTargetRotation.y += rotationY;
+			const calculateTvRotation = () => {
+				tvTargetRotation.x = pointerCoord.y * Math.PI * -0.09;
+				tvTargetRotation.y = pointerCoord.x * Math.PI * 0.09;
 			};
-
-			const interpolatePlaneRotation = () => {
+			const interpolateTvRotation = () => {
 				if (!tvModel) return;
-				const ease = 0.1;
-
-				tvModel.rotation.x = MathUtils.lerp(
-					tvModel.rotation.x,
-					tvModelTargetRotation.x,
-					ease
-				);
-				tvModel.rotation.y = MathUtils.lerp(
-					tvModel.rotation.y,
-					tvModelTargetRotation.y,
-					ease
-				);
+				tvModel.rotation.x += (tvTargetRotation.x - tvModel?.rotation.x) * 0.08;
+				tvModel.rotation.y += (tvTargetRotation.y - tvModel?.rotation.y) * 0.08;
 			};
+			const correctIframeSizes = (factor = 1) => {
+				iframeElement.style.minHeight = `${
+					iframeElementWidth * (tvScreenHeight / tvScreenWidth) * factor
+				}px`;
 
+				iframeElement.style.width = `${iframeElementWidth * factor}px`;
+			};
+			correctIframeSizes(1.15);
+
+			const onIframeLoad = () => {
+				correctIframeSizes();
+				if (
+					tvScreen &&
+					tvChanelControl &&
+					typeof tvScreen.material?.uniforms?.uAlpha?.value === "number"
+				) {
+					tvChanelControl.rotation.z = tvFireshipProChanel.degree;
+					tvScreen.material.uniforms.uAlpha.value = 0;
+				}
+
+				if (tvVolumeControl && iframePlayer) {
+					tvVolumeControl.rotation.z = tvInitialVolumeDegree;
+					iframePlayer.setVolume(
+						MathUtils.clamp(
+							1 - (tvVolumeControl.rotation.z + Math.PI * 2) / (Math.PI * 2),
+							0,
+							1
+						)
+					);
+				}
+				iframeElement.removeEventListener("load", onIframeLoad);
+			};
+			const onpointerDown = () => {
+				if (
+					!intersects?.length ||
+					!(intersects[0]?.object instanceof Mesh) ||
+					!["volume_control", "chanel_control"].includes(
+						intersects[0].object.name
+					)
+				)
+					return;
+				selectedObject = intersects[0].object;
+				if (selectedObject.name === "chanel_control") iframePlayer.pause();
+			};
 			const onPointerMove = (e: PointerEvent) => {
-				pointerCoord.x = (e.clientX / viewportWidth) * 2 - 1;
-				pointerCoord.y = -(e.clientY / viewportHeight) * 2 + 1;
+				pointerCoord.set(
+					(e.clientX / viewportWidth) * 2 - 1,
+					-(e.clientY / viewportHeight) * 2 + 1
+				);
 
 				raycaster.setFromCamera(pointerCoord, camera);
 				intersects = raycaster.intersectObject(scene);
 
-				if (canvasElement.parentElement)
-					canvasElement.parentElement.style.cursor = "auto";
-				if (
-					intersects?.length &&
-					canvasElement.parentElement &&
-					["volume_control", "chanel_control"].includes(
-						intersects[0].object.name
-					)
-				)
-					canvasElement.parentElement.style.cursor = "pointer";
+				if (!selectedObject) {
+					parentElement.style.cursor = "auto";
+					if (intersects.length) {
+						if (
+							["volume_control", "chanel_control"].includes(
+								intersects[0].object.name
+							)
+						)
+							parentElement.style.cursor = "pointer";
+						tvTargetRotation.set(0, 0);
+					}
 
-				if (!intersects.length)
-					calculateTvRotation(pointerCoord.x, pointerCoord.y);
-				else tvModelTargetRotation.set(0, 0);
-
-				prevPointerCoord.set(pointerCoord.x, pointerCoord.y);
-
-				if (!selectedObject || !tvChanelControl) return;
-
-				selectedObject.rotation.z -= -e.movementY * 0.01;
-				selectedObject.rotation.z = MathUtils.clamp(
-					selectedObject.rotation.z,
-					-Math.PI * 2,
-					0
-				);
-
-				if (selectedObject.name === "volume_control") {
-					const val = MathUtils.clamp(
-						1 - (selectedObject.rotation.z + Math.PI * 2) / (Math.PI * 2),
-						0,
-						1
-					);
-					iframePlayer.setVolume(val);
+					if (!intersects.length) calculateTvRotation();
 				}
-				if (typeof tvScreen?.material.uniforms?.uAlpha?.value === "number")
-					tvScreen.material.uniforms.uAlpha.value = mapToBoundary(
-						tvChanelControl.rotation.z,
-						fireshipProChanel.degree - 0.5,
-						fireshipProChanel.degree + 0.5
-					);
-			};
 
+				if (selectedObject) {
+					selectedObject.rotation.z -= -e.movementY * 0.01;
+					selectedObject.rotation.z = MathUtils.clamp(
+						selectedObject.rotation.z,
+						-Math.PI * 2,
+						0
+					);
+
+					if (selectedObject.name === "volume_control")
+						iframePlayer.setVolume(
+							MathUtils.clamp(
+								1 - (selectedObject.rotation.z + Math.PI * 2) / (Math.PI * 2),
+								0,
+								1
+							)
+						);
+
+					if (
+						typeof tvScreen?.material.uniforms?.uAlpha?.value === "number" &&
+						selectedObject.name === "chanel_control"
+					)
+						tvScreen.material.uniforms.uAlpha.value = mapToBoundary(
+							selectedObject.rotation.z,
+							tvFireshipProChanel.degree - 0.5,
+							tvFireshipProChanel.degree + 0.5
+						);
+				}
+			};
 			const onPointerUp = (e: PointerEvent) => {
 				selectedObject = undefined;
-				cameraLock.unlock();
+				parentElement.style.cursor = "auto";
+			};
+			const onPointerLeave = () => {
+				tvTargetRotation.set(0, 0);
+			};
+			const onResize = () => {
+				viewportWidth = parentElement.clientWidth;
+				viewportHeight = parentElement.clientHeight;
+				viewportAspect = viewportWidth / viewportHeight;
+
+				rendererCss.setSize(viewportWidth, viewportHeight);
+				cssCamera.updateProjectionMatrix();
+
+				renderer.setViewport(0, 0, viewportWidth, viewportHeight);
+				renderer.setSize(viewportWidth, viewportHeight);
+				renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+				camera.aspect = viewportWidth / viewportHeight;
+				camera.updateProjectionMatrix();
 			};
 
 			const render = () => {
@@ -348,8 +350,6 @@
 				if (typeof tvScreen?.material.uniforms?.uDelta?.value === "number")
 					tvScreen.material.uniforms.uDelta.value = tickDelta;
 
-				cameraOrbit.update();
-
 				planeMask.updateMatrixWorld();
 				const planeMaskWorldMatrix = planeMask.matrixWorld;
 				const planeMaskPosition = new Vector3();
@@ -361,7 +361,7 @@
 					planeMaskScale
 				);
 
-				interpolatePlaneRotation();
+				interpolateTvRotation();
 
 				cssPlaneObject.quaternion.copy(planeMaskQuaternion);
 				cssPlaneObject.position
@@ -384,20 +384,26 @@
 				if (shouldStopRendering) cancelAnimationFrame(animationFrameId);
 			};
 
-			render();
+			// EVENTS
+			iframeElement.addEventListener("load", onIframeLoad);
 
-			window.addEventListener("pointerdown", onpointerDown);
-			window.addEventListener("pointermove", onPointerMove);
-			window.addEventListener("pointerup", onPointerUp);
+			parentElement?.addEventListener("pointerdown", onpointerDown);
+			parentElement?.addEventListener("pointermove", onPointerMove);
+			parentElement?.addEventListener("pointerup", onPointerUp);
+			parentElement?.addEventListener("pointerleave", onPointerLeave);
+			window?.addEventListener("resize", onResize);
 
 			dispose = () => {
-				window.removeEventListener("pointerdown", onpointerDown);
-				window.removeEventListener("pointermove", onPointerMove);
-				window.removeEventListener("pointerup", onPointerUp);
-				cameraOrbit.dispose();
-				cameraLock.dispose();
+				parentElement?.removeEventListener("pointerdown", onpointerDown);
+				parentElement?.removeEventListener("pointermove", onPointerMove);
+				parentElement?.removeEventListener("pointerup", onPointerUp);
+				parentElement?.removeEventListener("pointerleave", onPointerLeave);
+				window?.removeEventListener("resize", onResize);
+
 				shouldStopRendering = true;
 			};
+
+			render();
 		};
 
 		loadResources(init);
