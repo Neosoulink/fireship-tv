@@ -228,30 +228,32 @@
 
 				iframeElement.style.width = `${iframeElementWidth * factor}px`;
 			};
-			correctIframeSizes(1.15);
+			correctIframeSizes(1.2);
 
 			const onIframeLoad = () => {
-				correctIframeSizes();
-				if (
-					tvScreen &&
-					tvChanelControl &&
-					typeof tvScreen.material?.uniforms?.uAlpha?.value === "number"
-				) {
-					tvChanelControl.rotation.z = tvFireshipProChanel.degree;
-					tvScreen.material.uniforms.uAlpha.value = 0;
-				}
+				setTimeout(() => {
+					correctIframeSizes();
+					if (
+						tvScreen &&
+						tvChanelControl &&
+						typeof tvScreen.material?.uniforms?.uAlpha?.value === "number"
+					) {
+						tvChanelControl.rotation.z = tvFireshipProChanel.degree;
+						tvScreen.material.uniforms.uAlpha.value = 0;
+					}
 
-				if (tvVolumeControl && iframePlayer) {
-					tvVolumeControl.rotation.z = tvInitialVolumeDegree;
-					iframePlayer.setVolume(
-						MathUtils.clamp(
-							1 - (tvVolumeControl.rotation.z + Math.PI * 2) / (Math.PI * 2),
-							0,
-							1
-						)
-					);
-				}
-				iframeElement.removeEventListener("load", onIframeLoad);
+					if (tvVolumeControl && iframePlayer) {
+						tvVolumeControl.rotation.z = tvInitialVolumeDegree;
+						iframePlayer.setVolume(
+							MathUtils.clamp(
+								1 - (tvVolumeControl.rotation.z + Math.PI * 2) / (Math.PI * 2),
+								0,
+								1
+							)
+						);
+					}
+					iframeElement.removeEventListener("load", onIframeLoad);
+				}, 200);
 			};
 			const onpointerDown = () => {
 				if (
